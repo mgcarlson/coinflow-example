@@ -1,0 +1,38 @@
+{
+  "name": "coinflow-example-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start --dev-client",
+    "start:go": "expo start --go",
+    "start:tunnel": "expo start --go --tunnel",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "postinstall": "node scripts/patch-coinflow-rn-apple-pay.cjs"
+  },
+  "dependencies": {
+    "@coinflowlabs/react-native": "^4.20.0",
+    "@noble/hashes": "^1.8.0",
+    "@solana-mobile/mobile-wallet-adapter-protocol": "^2.2.9",
+    "@solana-mobile/mobile-wallet-adapter-protocol-web3js": "^2.2.9",
+    "@solana/web3.js": "^1.98.4",
+    "babel-preset-expo": "~54.0.10",
+    "buffer": "^6.0.3",
+    "expo": "~54.0.0",
+    "expo-asset": "~12.0.13",
+    "expo-constants": "~18.0.13",
+    "expo-dev-client": "~6.0.21",
+    "expo-status-bar": "~3.0.9",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-get-random-values": "^1.11.0",
+    "react-native-webview": "13.15.0",
+    "tweetnacl": "^1.0.3"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.0",
+    "@types/react": "~19.1.10",
+    "typescript": "~5.9.2"
+  }
+}

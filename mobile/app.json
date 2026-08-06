@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Coinflow Withdraw RN",
+    "slug": "coinflow-example-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "scheme": "coinflow-example",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#0a0a0a"
+    },
+    "plugins": [
+      "expo-dev-client",
+      "expo-asset"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.coinflow.example.mobile"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0a0a0a"
+      },
+      "package": "com.coinflow.example.mobile"
+    }
+  }
+}

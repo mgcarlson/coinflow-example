@@ -1,0 +1,18 @@
+# Copy to tunnel/cloudflared.yml and fill in your values:
+#   cp tunnel/cloudflared.example.yml tunnel/cloudflared.yml
+#
+# One-time setup (domain must be on Cloudflare):
+#   brew install cloudflared
+#   cloudflared tunnel login
+#   cloudflared tunnel create coinflow-example
+#   cloudflared tunnel route dns coinflow-example coinflow-dev.yourcompany.com
+#
+# Credentials file is created at ~/.cloudflared/<TUNNEL_UUID>.json
+
+tunnel: REPLACE_WITH_TUNNEL_UUID
+credentials-file: /Users/YOU/.cloudflared/REPLACE_WITH_TUNNEL_UUID.json
+
+ingress:
+  - hostname: coinflow-dev.yourcompany.com
+    service: http://localhost:5173
+  - service: http_status:404

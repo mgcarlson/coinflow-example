@@ -3,3 +3,11 @@ dist
 .env
 .DS_Store
 *.log
+
+# Merchant-specific Apple Pay verification file (download from Coinflow dashboard)
+public/.well-known/apple-developer-merchantid-domain-association
+public/.well-known/apple-developer-merchantid-domain-association.txt
+
+# Local Cloudflare Tunnel config (contains tunnel UUID + credentials path)
+tunnel/cloudflared.yml
+.vercel
