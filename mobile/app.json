@@ -16,7 +16,10 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.coinflow.example.mobile"
+      "bundleIdentifier": "com.coinflow.example.mobile",
+      "infoPlist": {
+        "LSApplicationQueriesSchemes": ["phantom"]
+      }
     },
     "android": {
       "adaptiveIcon": {

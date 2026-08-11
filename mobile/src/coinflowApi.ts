@@ -116,12 +116,15 @@ export async function fetchMerchantV2(
   return data;
 }
 
-export type VenmoCheckoutResult = {
+export type WalletCheckoutResult = {
   ok: boolean;
   status: number;
-  data: { paymentId?: string } & Record<string, unknown>;
+  data: { paymentId?: string; message?: string } & Record<string, unknown>;
   text: string;
 };
+
+/** @deprecated use WalletCheckoutResult */
+export type VenmoCheckoutResult = WalletCheckoutResult;
 
 /** POST /checkout/venmo/{merchantId} — returns paymentId for PayPal createOrder. */
 export async function postVenmoCheckout(args: {
@@ -131,7 +134,7 @@ export async function postVenmoCheckout(args: {
   subtotalCents: number;
   email: string;
   currency?: string;
-}): Promise<VenmoCheckoutResult> {
+}): Promise<WalletCheckoutResult> {
   const res = await fetch(
     `${API_BASE}/checkout/venmo/${encodeURIComponent(args.merchantId)}`,
     {
@@ -153,9 +156,48 @@ export async function postVenmoCheckout(args: {
     }
   );
   const text = await res.text();
-  let data: VenmoCheckoutResult["data"] = {};
+  let data: WalletCheckoutResult["data"] = {};
   try {
-    data = JSON.parse(text) as VenmoCheckoutResult["data"];
+    data = JSON.parse(text) as WalletCheckoutResult["data"];
+  } catch {
+    data = { raw: text };
+  }
+  return { ok: res.ok, status: res.status, data, text };
+}
+
+/** POST /checkout/paypal/{merchantId} — returns paymentId for PayPal createOrder. */
+export async function postPayPalCheckout(args: {
+  merchantId: string;
+  sessionKey: string;
+  userId: string;
+  subtotalCents: number;
+  email: string;
+  currency?: string;
+}): Promise<WalletCheckoutResult> {
+  const res = await fetch(
+    `${API_BASE}/checkout/paypal/${encodeURIComponent(args.merchantId)}`,
+    {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+        Authorization: apiKey(),
+        "x-coinflow-auth-session-key": args.sessionKey.trim(),
+        "x-coinflow-auth-user-id": args.userId.trim(),
+      },
+      body: JSON.stringify({
+        subtotal: {
+          cents: args.subtotalCents,
+          currency: args.currency ?? "USD",
+        },
+        paypal: { email: args.email.trim() },
+      }),
+    }
+  );
+  const text = await res.text();
+  let data: WalletCheckoutResult["data"] = {};
+  try {
+    data = JSON.parse(text) as WalletCheckoutResult["data"];
   } catch {
     data = { raw: text };
   }
@@ -182,22 +224,18 @@ export function buildVenmoPayPalHtml(config: {
       background: #0a0a0a;
       color: #e0e0e0;
     }
-    #status { font-size: 13px; line-height: 1.5; margin-bottom: 12px; min-height: 40px; }
-    #venmo-button-container { min-height: 52px; }
+    #paypal-button-container, #venmo-button-container { min-height: 52px; margin-bottom: 12px; }
     .err { color: #ff3d00; }
     .ok { color: #00c853; }
   </style>
 </head>
 <body>
-  <div id="status">Loading PayPal SDK…</div>
+  <div id="paypal-button-container"></div>
   <div id="venmo-button-container"></div>
   <script>
     const CONFIG = ${cfg};
-    const statusEl = document.getElementById('status');
-    function setStatus(msg, cls) {
-      statusEl.textContent = msg;
-      statusEl.className = cls || '';
-    }
+    const statusEl = null;
+    function setStatus() {}
     function post(type, payload) {
       if (window.ReactNativeWebView) {
         window.ReactNativeWebView.postMessage(JSON.stringify({ type: type, ...(payload || {}) }));
@@ -211,11 +249,11 @@ export function buildVenmoPayPalHtml(config: {
       if (ok) waiter.resolve(value);
       else waiter.reject(new Error(value || 'Order failed'));
     };
-    function requestCoinflowOrder() {
+    function requestCoinflowOrder(funding) {
       return new Promise(function(resolve, reject) {
         var requestId = Math.random().toString(36).slice(2);
         window.__orderWaiters[requestId] = { resolve: resolve, reject: reject };
-        post('createOrder', { requestId: requestId });
+        post('createOrder', { requestId: requestId, funding: funding });
         setTimeout(function() {
           if (window.__orderWaiters[requestId]) {
             delete window.__orderWaiters[requestId];
@@ -232,7 +270,7 @@ export function buildVenmoPayPalHtml(config: {
           currency: 'USD',
           intent: 'authorize',
           components: 'buttons',
-          'enable-funding': 'venmo',
+          'enable-funding': 'venmo,paypal',
           'disable-funding': 'paylater',
           'buyer-country': 'US',
         });
@@ -250,40 +288,36 @@ export function buildVenmoPayPalHtml(config: {
         if (!window.paypal || !window.paypal.Buttons) {
           throw new Error('PayPal SDK not available');
         }
-        var buttons = window.paypal.Buttons({
-          fundingSource: window.paypal.FUNDING.VENMO,
-          style: { layout: 'horizontal', shape: 'rect', height: 48, tagline: false },
-          createOrder: async function() {
-            setStatus('Creating Coinflow Venmo order…');
-            var paymentId = await requestCoinflowOrder();
-            setStatus('Order created: ' + paymentId);
-            post('orderCreated', { paymentId: paymentId });
-            return paymentId;
-          },
-          onApprove: function(data) {
-            setStatus('Approved — order ' + data.orderID, 'ok');
-            post('approved', { orderId: data.orderID });
-          },
-          onCancel: function() {
-            setStatus('Venmo checkout cancelled');
-            post('cancelled', {});
-          },
-          onError: function(err) {
-            var msg = (err && err.message) ? err.message : String(err);
-            setStatus('Error: ' + msg, 'err');
-            post('error', { message: msg });
-          },
-        });
-        if (!buttons.isEligible || !buttons.isEligible()) {
-          setStatus(
-            'Venmo is not eligible on this device (US buyer + Venmo app required).',
-            'err'
-          );
-          post('ineligible', {});
-          return;
+        function wireButtons(fundingSource, fundingKey, containerId, label) {
+          var buttons = window.paypal.Buttons({
+            fundingSource: fundingSource,
+            style: { layout: 'horizontal', shape: 'rect', height: 48, tagline: false },
+            createOrder: async function() {
+              setStatus('Creating Coinflow ' + label + ' order…');
+              var paymentId = await requestCoinflowOrder(fundingKey);
+              setStatus('Order created: ' + paymentId);
+              post('orderCreated', { paymentId: paymentId, funding: fundingKey });
+              return paymentId;
+            },
+            onApprove: function(data) {
+              setStatus('Approved — order ' + data.orderID, 'ok');
+              post('approved', { orderId: data.orderID, funding: fundingKey });
+            },
+            onCancel: function() {
+              setStatus(label + ' checkout cancelled');
+              post('cancelled', { funding: fundingKey });
+            },
+            onError: function(err) {
+              var msg = (err && err.message) ? err.message : String(err);
+              setStatus('Error: ' + msg, 'err');
+              post('error', { message: msg, funding: fundingKey });
+            },
+          });
+          return buttons.render(containerId);
         }
-        setStatus('Tap Venmo to pay $' + (CONFIG.cents / 100).toFixed(2));
-        await buttons.render('#venmo-button-container');
+        setStatus();
+        await wireButtons(window.paypal.FUNDING.PAYPAL, 'paypal', '#paypal-button-container', 'PayPal');
+        await wireButtons(window.paypal.FUNDING.VENMO, 'venmo', '#venmo-button-container', 'Venmo');
       } catch (e) {
         var errMsg = (e && e.message) ? e.message : String(e);
         setStatus('Setup failed: ' + errMsg, 'err');

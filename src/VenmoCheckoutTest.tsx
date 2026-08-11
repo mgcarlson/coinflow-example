@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 import {
   fetchMerchantV2,
   fetchSessionKeyForUser,
+  postPayPalCheckout,
   postVenmoCheckout,
   resolvePayPalMerchantId,
   SANDBOX_PAYPAL_CLIENT_ID,
@@ -20,7 +21,7 @@ type PayPalButtons = {
 
 type PayPalSdk = {
   Buttons: (config: Record<string, unknown>) => PayPalButtons;
-  FUNDING: { VENMO: string };
+  FUNDING: { VENMO: string; PAYPAL: string };
 };
 
 declare global {
@@ -45,7 +46,7 @@ function loadPayPalSdk(paypalMerchantId: string): Promise<void> {
       currency: "USD",
       intent: "authorize",
       components: "buttons",
-      "enable-funding": "venmo",
+      "enable-funding": "venmo,paypal",
       "disable-funding": "paylater",
       "buyer-country": "US",
     });
@@ -72,13 +73,6 @@ function loadPayPalSdk(paypalMerchantId: string): Promise<void> {
   });
 }
 
-export type VenmoCheckoutInitial = {
-  userId?: string;
-  email?: string;
-  amountUsd?: string;
-  autoStart?: boolean;
-};
-
 export function VenmoCheckoutTest({
   initialUserId,
   initialEmail,
@@ -90,7 +84,8 @@ export function VenmoCheckoutTest({
   initialAmountUsd?: string;
   autoStart?: boolean;
 }) {
-  const buttonRef = useRef<HTMLDivElement>(null);
+  const paypalButtonRef = useRef<HTMLDivElement>(null);
+  const venmoButtonRef = useRef<HTMLDivElement>(null);
   const [userId, setUserId] = useState(
     () =>
       initialUserId?.trim() ||
@@ -127,7 +122,7 @@ export function VenmoCheckoutTest({
       return;
     }
     if (!email.trim()) {
-      setError("Email is required for Venmo checkout");
+      setError("Email is required");
       return;
     }
 
@@ -138,7 +133,8 @@ export function VenmoCheckoutTest({
     setSessionKey("");
     setPaypalMerchantId("");
     setPaypalSource(null);
-    if (buttonRef.current) buttonRef.current.innerHTML = "";
+    if (paypalButtonRef.current) paypalButtonRef.current.innerHTML = "";
+    if (venmoButtonRef.current) venmoButtonRef.current.innerHTML = "";
 
     try {
       const key = await fetchSessionKeyForUser(userId);
@@ -164,63 +160,81 @@ export function VenmoCheckoutTest({
   }, [userId, cents, email]);
 
   useEffect(() => {
-    if (!ready || cents == null || !buttonRef.current) return;
+    if (!ready || cents == null) return;
 
     let cancelled = false;
-    const container = buttonRef.current;
-    container.innerHTML = "";
 
-    async function renderVenmo() {
+    async function renderWalletButtons() {
       try {
         await loadPayPalSdk(paypalMerchantId);
         if (cancelled || !window.paypal?.Buttons) {
           throw new Error("PayPal SDK not available");
         }
 
-        const buttons = window.paypal.Buttons({
-          fundingSource: window.paypal.FUNDING.VENMO,
-          style: { layout: "horizontal", shape: "rect", height: 48, tagline: false },
-          createOrder: async () => {
-            setWebStatus("Creating Coinflow Venmo order…");
-            const result = await postVenmoCheckout({
-              merchantId: MERCHANT_ID,
-              sessionKey,
-              userId: userId.trim(),
-              subtotalCents: cents!,
-              email: email.trim(),
-            });
-            const paymentId =
-              typeof result.data.paymentId === "string"
-                ? result.data.paymentId
-                : null;
-            if (!result.ok || !paymentId) {
-              const msg =
-                typeof result.data.message === "string"
-                  ? result.data.message
-                  : `Venmo checkout failed (${result.status})`;
-              throw new Error(msg);
-            }
-            setWebStatus(`Coinflow order: ${paymentId}`);
-            return paymentId;
-          },
-          onApprove: (data: { orderID?: string }) => {
-            setWebStatus(`Venmo approved — ${data.orderID ?? "ok"}`);
-          },
-          onCancel: () => setWebStatus("Cancelled"),
-          onError: (err: { message?: string }) => {
-            setWebStatus(`Error: ${err?.message ?? "PayPal error"}`);
-          },
-        });
+        const checkoutArgs = {
+          merchantId: MERCHANT_ID,
+          sessionKey,
+          userId: userId.trim(),
+          subtotalCents: cents!,
+          email: email.trim(),
+        };
 
-        if (!buttons.isEligible()) {
-          setWebStatus(
-            "Venmo not eligible — use Safari (iOS) or Chrome (Android), US location, Venmo app installed."
-          );
-          return;
+        async function createOrder(funding: "paypal" | "venmo") {
+          setWebStatus(`Creating Coinflow ${funding} order…`);
+          const result =
+            funding === "paypal"
+              ? await postPayPalCheckout(checkoutArgs)
+              : await postVenmoCheckout(checkoutArgs);
+          const paymentId =
+            typeof result.data.paymentId === "string"
+              ? result.data.paymentId
+              : null;
+          if (!result.ok || !paymentId) {
+            const msg =
+              typeof result.data.message === "string"
+                ? result.data.message
+                : `${funding} checkout failed (${result.status})`;
+            throw new Error(msg);
+          }
+          setWebStatus(`Coinflow order: ${paymentId}`);
+          return paymentId;
         }
 
-        setWebStatus(`Tap Venmo to pay $${(cents! / 100).toFixed(2)}`);
-        await buttons.render(container);
+        async function renderFunding(
+          funding: "paypal" | "venmo",
+          container: HTMLDivElement | null
+        ) {
+          if (!container) return;
+          container.innerHTML = "";
+          const fundingSource =
+            funding === "paypal"
+              ? window.paypal!.FUNDING.PAYPAL
+              : window.paypal!.FUNDING.VENMO;
+          const buttons = window.paypal!.Buttons({
+            fundingSource,
+            style: {
+              layout: "horizontal",
+              shape: "rect",
+              height: 48,
+              tagline: false,
+            },
+            createOrder: () => createOrder(funding),
+            onApprove: (data: { orderID?: string }) => {
+              setWebStatus(`${funding} approved — ${data.orderID ?? "ok"}`);
+            },
+            onCancel: () => setWebStatus("Cancelled"),
+            onError: (err: { message?: string }) => {
+              setWebStatus(`Error: ${err?.message ?? "PayPal error"}`);
+            },
+          });
+          if (buttons.isEligible()) {
+            await buttons.render(container);
+          }
+        }
+
+        setWebStatus(`Pay $${(cents! / 100).toFixed(2)}`);
+        await renderFunding("paypal", paypalButtonRef.current);
+        await renderFunding("venmo", venmoButtonRef.current);
       } catch (e) {
         if (!cancelled) {
           setWebStatus(
@@ -230,10 +244,11 @@ export function VenmoCheckoutTest({
       }
     }
 
-    void renderVenmo();
+    void renderWalletButtons();
     return () => {
       cancelled = true;
-      container.innerHTML = "";
+      if (paypalButtonRef.current) paypalButtonRef.current.innerHTML = "";
+      if (venmoButtonRef.current) venmoButtonRef.current.innerHTML = "";
     };
   }, [ready, setupNonce, sessionKey, paypalMerchantId, userId, email, cents]);
 
@@ -246,12 +261,6 @@ export function VenmoCheckoutTest({
 
   return (
     <div>
-      <p style={styles.lead}>
-        Direct API + PayPal JS SDK (Venmo funding source). Run in{" "}
-        <strong>Safari</strong> on iOS or <strong>Chrome</strong> on Android — PayPal
-        blocks Venmo inside in-app WebViews.
-      </p>
-
       {!HAS_API_KEY && <p style={styles.err}>Set VITE_COINFLOW_API_KEY</p>}
 
       <label style={styles.lab}>Shopper user id</label>
@@ -262,7 +271,7 @@ export function VenmoCheckoutTest({
         autoComplete="off"
       />
 
-      <label style={styles.lab}>Venmo email</label>
+      <label style={styles.lab}>PayPal / Venmo email</label>
       <input
         style={styles.inp}
         value={email}
@@ -284,7 +293,7 @@ export function VenmoCheckoutTest({
         onClick={() => void prepare()}
         disabled={loading}
       >
-        {loading ? "Loading…" : "Load Venmo button"}
+        {loading ? "Loading…" : "Load PayPal & Venmo buttons"}
       </button>
 
       <p style={styles.fine}>
@@ -297,18 +306,15 @@ export function VenmoCheckoutTest({
       {status && !error && <p style={styles.ok}>{status}</p>}
       {webStatus && <p style={styles.fine}>{webStatus}</p>}
 
-      <div ref={buttonRef} style={styles.venmoSlot} />
+      <p style={styles.lab}>PayPal</p>
+      <div ref={paypalButtonRef} style={styles.walletSlot} />
+      <p style={styles.lab}>Venmo</p>
+      <div ref={venmoButtonRef} style={styles.walletSlot} />
     </div>
   );
 }
 
 const styles: Record<string, CSSProperties> = {
-  lead: {
-    color: "#888",
-    fontSize: 13,
-    lineHeight: 1.55,
-    marginBottom: 16,
-  },
   lab: {
     display: "block",
     color: "#888",
@@ -343,5 +349,5 @@ const styles: Record<string, CSSProperties> = {
   fine: { color: "#666", fontSize: 12, lineHeight: 1.5, marginBottom: 12 },
   err: { color: "#ff3d00", fontSize: 13, marginBottom: 12 },
   ok: { color: "#00c853", fontSize: 13, marginBottom: 12 },
-  venmoSlot: { minHeight: 52, marginTop: 8 },
+  walletSlot: { minHeight: 52, marginBottom: 16 },
 };

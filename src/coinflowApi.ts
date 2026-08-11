@@ -1313,6 +1313,48 @@ export type VenmoCheckoutResult = {
   text: string;
 };
 
+/** POST /checkout/paypal/{merchantId} — returns paymentId for PayPal createOrder. */
+export async function postPayPalCheckout(args: {
+  merchantId: string;
+  sessionKey: string;
+  userId: string;
+  subtotalCents: number;
+  email: string;
+  currency?: string;
+}): Promise<VenmoCheckoutResult> {
+  const auth = import.meta.env.VITE_COINFLOW_API_KEY?.trim();
+  if (!auth) throw new Error("Set VITE_COINFLOW_API_KEY in .env");
+
+  const res = await fetch(
+    `${getCoinflowApiBase()}/checkout/paypal/${encodeURIComponent(args.merchantId)}`,
+    {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+        Authorization: auth,
+        "x-coinflow-auth-session-key": args.sessionKey.trim(),
+        "x-coinflow-auth-user-id": args.userId.trim(),
+      },
+      body: JSON.stringify({
+        subtotal: {
+          cents: args.subtotalCents,
+          currency: args.currency ?? "USD",
+        },
+        paypal: { email: args.email.trim() },
+      }),
+    }
+  );
+  const text = await res.text();
+  let data: VenmoCheckoutResult["data"] = {};
+  try {
+    data = JSON.parse(text) as VenmoCheckoutResult["data"];
+  } catch {
+    data = { raw: text };
+  }
+  return { ok: res.ok, status: res.status, data, text };
+}
+
 /** POST /checkout/venmo/{merchantId} — returns paymentId for PayPal createOrder. */
 export async function postVenmoCheckout(args: {
   merchantId: string;

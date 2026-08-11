@@ -90,7 +90,7 @@ export function App() {
           style={tab === "venmo" ? styles.tabActive : styles.tab}
           onClick={() => setTab("venmo")}
         >
-          Venmo
+          PayPal & Venmo
         </button>
       </div>
 

@@ -1,18 +1,30 @@
-import { Connection, PublicKey } from "@solana/web3.js";
+import Constants from "expo-constants";
+import {
+  createPhantomDeeplinkWallet,
+  phantomDeeplink,
+} from "./phantomDeeplink";
 import type { PhantomAuth, SolanaWallet } from "./coinflowWallet";
+import { Connection, PublicKey } from "@solana/web3.js";
 
-const ANDROID_ONLY =
-  "Mobile Wallet Adapter (Phantom) is Android-only. On iOS Simulator use the simulator wallet.";
+const SIMULATOR_ONLY =
+  "Install Phantom on a physical iPhone, or use the simulator dev wallet.";
 
-/** @see mwaPhantom.android.ts */
+/** Connect to Phantom on iOS via deeplinks (physical device). */
 export async function connectPhantomMobile(): Promise<PhantomAuth> {
-  throw new Error(ANDROID_ONLY);
+  if (!Constants.isDevice) {
+    throw new Error(SIMULATOR_ONLY);
+  }
+  phantomDeeplink.start();
+  return phantomDeeplink.connect();
 }
 
-export async function disconnectPhantomMobile(): Promise<void> {
-  throw new Error(ANDROID_ONLY);
+export async function disconnectPhantomMobile(_authToken?: string): Promise<void> {
+  await phantomDeeplink.disconnect();
 }
 
-export function createMwaCoinflowWallet(): SolanaWallet & { publicKey: PublicKey } {
-  throw new Error(ANDROID_ONLY);
+export function createMwaCoinflowWallet(
+  _auth: PhantomAuth,
+  connection: Connection
+): SolanaWallet & { publicKey: PublicKey } {
+  return createPhantomDeeplinkWallet(connection);
 }
